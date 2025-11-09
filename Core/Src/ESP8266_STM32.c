@@ -35,14 +35,14 @@ ESP8266_Status ESP_Init(void)
 	USER_LOG("Initializing ESP8266...");
 	HAL_Delay(1000);
 
-//	res = ESP_SendCommand("AT+RST\r\n", "OK", 2000);
-//    if (res != ESP8266_OK){
-//    	DEBUG_LOG("Failed to Reset ESP8266...");
-//    	return res;
-//    }
-//
-//    USER_LOG("Waiting 5 Seconds for Reset to Complete...");
-//    HAL_Delay(5000);  // wait for reset to complete
+	res = ESP_SendCommand("AT+RST\r\n", "OK", 2000);
+    if (res != ESP8266_OK){
+    	DEBUG_LOG("Failed to Reset ESP8266...");
+    	return res;
+    }
+
+    USER_LOG("Waiting 5 Seconds for Reset to Complete...");
+    HAL_Delay(5000);  // wait for reset to complete
 
     res = ESP_SendCommand("AT\r\n", "OK", 2000);
     if (res != ESP8266_OK){

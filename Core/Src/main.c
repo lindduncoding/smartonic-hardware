@@ -59,13 +59,13 @@
 // Detection - OPTIMIZED for 3m track
 #define VALID_DISTANCE_MIN 3         // Closer minimum (was 5)
 #define VALID_DISTANCE_MAX 100       // Wider range (was 50)
-#define IR_DEBOUNCE_MS 20           // Longer debounce (was 50)
+#define IR_DEBOUNCE_MS 300           // Longer debounce (was 50)
 #define BUMP_COOLDOWN_MS 1500        // Shorter cooldown (was 2000)
 #define NO_VEHICLE_TIMEOUT_MS 2000   // Longer timeout (was 1000)
 
 // Speed calculation constants for 3m track
 #define MIN_DISTANCE_CHANGE 2        // Minimum 2cm change to calculate speed
-#define MAX_REASONABLE_SPEED 30.0f   // Maximum 30 km/h for safety
+#define MAX_REASONABLE_SPEED 10.0f   // Maximum 30 km/h for safety
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -121,7 +121,6 @@ uint32_t ir_last_detection_time = 0;
 uint8_t ir_last_stable_state = 1;
 uint8_t ir_current_state = 1;
 uint8_t ir_sensor_changed = 0;
-uint32_t ir_last_trigger_time = 0;
 
 // Density
 float current_density = 0.0f;
@@ -370,58 +369,33 @@ uint8_t HCSR04_Read(void)
     return 1;
 }
 
-//void check_ir_sensor_state(void)
-//{
-//    uint8_t new_state = HAL_GPIO_ReadPin(IR_SENSOR_PORT, IR_SENSOR_PIN);
-//    uint32_t current_time = HAL_GetTick();
-//
-//    if (new_state != ir_current_state) {
-//        ir_current_state = new_state;
-//        ir_last_detection_time = current_time;
-//        ir_sensor_changed = 1;
-//    }
-//
-//    if (ir_sensor_changed &&
-//        (current_time - ir_last_detection_time >= IR_DEBOUNCE_MS))
-//    {
-//        if (ir_current_state == 0 && ir_last_stable_state == 1)
-//        {
-//            ir_vehicle_count++;
-//            density_window_count++;
-//            total_vehicles++;
-//
-//            sprintf(MSG, "[IR] ✓ VEHICLE #%lu detected!\r\n", total_vehicles);
-//            HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-//        }
-//
-//        ir_last_stable_state = ir_current_state;
-//        ir_sensor_changed = 0;
-//    }
-//}
-
 void check_ir_sensor_state(void)
 {
-    uint8_t current_state = HAL_GPIO_ReadPin(IR_SENSOR_PORT, IR_SENSOR_PIN);
+    uint8_t new_state = HAL_GPIO_ReadPin(IR_SENSOR_PORT, IR_SENSOR_PIN);
     uint32_t current_time = HAL_GetTick();
 
-    // Detect FALLING EDGE (vehicle enters beam: 1 → 0)
-    if (current_state == 0 && ir_last_stable_state == 1)
+    if (new_state != ir_current_state) {
+        ir_current_state = new_state;
+        ir_last_detection_time = current_time;
+        ir_sensor_changed = 1;
+    }
+
+    if (ir_sensor_changed &&
+        (current_time - ir_last_detection_time >= IR_DEBOUNCE_MS))
     {
-        // Check minimum time between detections (prevent double-counting)
-        if (current_time - ir_last_trigger_time >= IR_DEBOUNCE_MS)
+        if (ir_current_state == 0 && ir_last_stable_state == 1)
         {
             ir_vehicle_count++;
             density_window_count++;
             total_vehicles++;
-            ir_last_trigger_time = current_time;
 
-            sprintf(MSG, "[IR] ✓ VEHICLE #%lu detected! (%.1f km/h)\r\n",
-                    total_vehicles, smoothed_speed_kmh);
+            sprintf(MSG, "[IR] ✓ VEHICLE #%lu detected!\r\n", total_vehicles);
             HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
         }
-    }
 
-    ir_last_stable_state = current_state;
+        ir_last_stable_state = ir_current_state;
+        ir_sensor_changed = 0;
+    }
 }
 
 void update_density_calculation(uint32_t current_time)

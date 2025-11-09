@@ -1,4 +1,4 @@
-../Core/Src/ESP8266_STM32.c:32:16:ESP_Init	3
+../Core/Src/ESP8266_STM32.c:32:16:ESP_Init	4
 ../Core/Src/ESP8266_STM32.c:62:16:ESP_ConnectWiFi	4
 ../Core/Src/ESP8266_STM32.c:103:25:ESP_GetConnectionState	1
 ../Core/Src/ESP8266_STM32.c:110:16:ESP_MQTT_Connect	4
