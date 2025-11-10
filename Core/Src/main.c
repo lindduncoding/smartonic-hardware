@@ -698,7 +698,7 @@ int main(void)
       HAL_Delay(1500);
   }
 
-  if (ESP_MQTT_Connect("10.147.180.210", 1883, "STM32SpeedBump", NULL, NULL, 60) != ESP8266_OK){
+  if (ESP_MQTT_Connect("10.73.13.82", 1883, "STM32SpeedBump", NULL, NULL, 60) != ESP8266_OK){
       sprintf(MSG, "[WARN] MQTT connection failed\r\n");
       HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
@@ -791,15 +791,15 @@ int main(void)
 	                      smoothed_speed_kmh = 0.6f * smoothed_speed_kmh + 0.4f * current_speed_kmh;
 	                  }
 	              }
-	    	      // IR SENSOR CHECK
-	    	      check_ir_sensor_state();
-
-	    	      // DENSITY CALCULATION
-	    	      update_density_calculation(current_time);
-
-	    	      // CONTROL BUMP BASED ON SPEED AND DENSITY
-	    	      control_speed_bump(smoothed_speed_kmh, current_density);
 	          }
+    	      // IR SENSOR CHECK runs regardless of US state
+    	      check_ir_sensor_state();
+
+    	      // DENSITY CALCULATION
+    	      update_density_calculation(current_time);
+
+    	      // CONTROL BUMP BASED ON SPEED AND DENSITY
+    	      control_speed_bump(smoothed_speed_kmh, current_density);
 
 	          // Check timeout
 	          if (current_time - last_valid_detection > NO_VEHICLE_TIMEOUT_MS)
