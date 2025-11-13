@@ -18,6 +18,8 @@
 #include "fonts.h"
 #include "q_table.h"
 #include "state_classifier.h"
+
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -52,9 +54,11 @@
 #define SERVO1_DOWN_ANGLE 0
 #define SERVO1_UP_ANGLE 30           // Reduced from 45
 #define SERVO2_DOWN_ANGLE 0
-#define SERVO2_UP_ANGLE 40           // Reduced from 60
+#define SERVO2_UP_ANGLE 30           // Reduced from 60
 #define SERVO3_DOWN_ANGLE 0
 #define SERVO3_UP_ANGLE 30           // Reduced from 45
+#define SERVO4_DOWN_ANGLE 0
+#define SERVO4_UP_ANGLE 30
 
 // Detection - OPTIMIZED for 3m track
 #define VALID_DISTANCE_MIN 3         // Closer minimum (was 5)
@@ -81,6 +85,7 @@ RTC_HandleTypeDef hrtc;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart6;
@@ -170,6 +175,7 @@ static void MX_RTC_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void delay_us(uint16_t us);
 uint8_t HCSR04_Read(void);
@@ -199,7 +205,7 @@ void delay_us(uint16_t us)
 
 struct angles Set_Servo_RL_Action(uint8_t action)
 {
-	struct angles A;
+    struct angles A;
     if (action == 0) {
         A.target_angle = SERVO1_DOWN_ANGLE;
         A.center_angle = SERVO2_DOWN_ANGLE;
@@ -429,6 +435,9 @@ void servo_set_angle(uint8_t servo_num, uint8_t angle)
         case 3:
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, pulse);  // Servo 3 - TIM3 CH3
             break;
+        case 4:
+            __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, pulse);  // Servo 4 - TIM4 CH3 (NEW!)
+            break;
     }
 }
 
@@ -436,38 +445,36 @@ void servo_set_angle(uint8_t servo_num, uint8_t angle)
 void control_speed_bump(float speed_kmh, float density)
 {
     uint32_t current_time = HAL_GetTick();
-    // Decide using RL
-    current_state = classify_state(density, speed_kmh);
+
     if (current_time - last_bump_change < BUMP_COOLDOWN_MS) return;
 
     // Decide using RL
     current_state = classify_state(density, speed_kmh);
 
     if (current_state >= 0 && current_state < NUM_STATES) {
-
         // Pilih action berdasarkan Q-table
         action = select_best_action(current_state);
 
         snprintf(MSG, sizeof(MSG), "Q-Table Decision: Action=%u\r\n", action);
         HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
-        // Eksekusi action dengan animasi
+        // Eksekusi action dengan animasi - 4 servos
         struct angles result = Set_Servo_RL_Action(action);
-        // Raise all 3 servos with staggered timing for smooth operation
+
         servo_set_angle(1, result.target_angle);
-        HAL_Delay(50);  // Small delay between servos
-        servo_set_angle(2, result.center_angle);  // Center servo higher
+        HAL_Delay(50);
+        servo_set_angle(2, result.center_angle);
         HAL_Delay(50);
         servo_set_angle(3, result.target_angle);
+        HAL_Delay(50);
+        servo_set_angle(4, result.target_angle);  // NEW: 4th servo
 
         bump_is_up = result.bump_status;
         last_bump_change = current_time;
 
         snprintf(MSG, sizeof(MSG),
-                 "[BUMP] ACTION SET %u  - Vehicle speed at %.1f cm/s\r\n",
-				 bump_is_up,
-                 speed_kmh);
-
+                 "[BUMP] ALL 4 SERVOS ACTION %u - Speed: %.1f km/h\r\n",
+                 bump_is_up, speed_kmh);
         HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
     } else {
@@ -475,36 +482,41 @@ void control_speed_bump(float speed_kmh, float density)
 
         if (speed_kmh > SPEED_THRESHOLD_HIGH && !bump_is_up)
         {
-            // Raise all 3 servos with staggered timing for smooth operation
+            // Raise all 4 servos with staggered timing
             servo_set_angle(1, SERVO1_UP_ANGLE);
-            HAL_Delay(50);  // Small delay between servos
-            servo_set_angle(2, SERVO2_UP_ANGLE);  // Center servo higher
+            HAL_Delay(50);
+            servo_set_angle(2, SERVO2_UP_ANGLE);
             HAL_Delay(50);
             servo_set_angle(3, SERVO3_UP_ANGLE);
+            HAL_Delay(50);
+            servo_set_angle(4, SERVO4_UP_ANGLE);  // NEW: 4th servo
 
             bump_is_up = 1;
             last_bump_change = current_time;
 
-            sprintf(MSG, "[BUMP] ⚠️  ALL 3 SERVOS RAISED - Speed: %.1f km/h\r\n", speed_kmh);
+            sprintf(MSG, "[BUMP] ⚠️  ALL 4 SERVOS RAISED - Speed: %.1f km/h\r\n", speed_kmh);
             HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
         }
         else if (speed_kmh < SPEED_THRESHOLD_LOW && bump_is_up)
         {
-            // Lower all 3 servos
+            // Lower all 4 servos
             servo_set_angle(1, SERVO1_DOWN_ANGLE);
             HAL_Delay(50);
             servo_set_angle(2, SERVO2_DOWN_ANGLE);
             HAL_Delay(50);
             servo_set_angle(3, SERVO3_DOWN_ANGLE);
+            HAL_Delay(50);
+            servo_set_angle(4, SERVO4_DOWN_ANGLE);  // NEW: 4th servo
 
             bump_is_up = 0;
             last_bump_change = current_time;
 
-            sprintf(MSG, "[BUMP] ✓ ALL 3 SERVOS LOWERED - Speed: %.1f km/h\r\n", speed_kmh);
+            sprintf(MSG, "[BUMP] ✓ ALL 4 SERVOS LOWERED - Speed: %.1f km/h\r\n", speed_kmh);
             HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
         }
     }
 }
+
 
 void update_oled_display(float speed, float density, uint8_t bump_status)
 {
@@ -556,7 +568,7 @@ void print_diagnostics(void)
     uint32_t success_rate = (ultrasonic_read_count > 0) ?
         (ultrasonic_success_count * 100 / ultrasonic_read_count) : 0;
 
-    sprintf(MSG, "\r\n╔═══ DIAGNOSTIC ═══╗\r\n");
+    sprintf(MSG, "\r\n╔═══ DIAGNOSTIC (4-SERVO) ═══╗\r\n");
     HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
     sprintf(MSG, "║ US Success: %lu%% | Reads: %lu/%lu\r\n",
@@ -576,11 +588,11 @@ void print_diagnostics(void)
             ir_vehicle_count);
     HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
-    sprintf(MSG, "║ Servos: %s | Density: %.0f v/m\r\n",
+    sprintf(MSG, "║ 4 Servos: %s | Density: %.0f v/m\r\n",
             bump_is_up ? "UP" : "DOWN", current_density);
     HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 
-    sprintf(MSG, "╚══════════════════╝\r\n\r\n");
+    sprintf(MSG, "╚═════════════════════════════╝\r\n\r\n");
     HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
 }
 
@@ -622,6 +634,7 @@ int main(void)
   MX_TIM2_Init();
   MX_I2C1_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   /* USER CODE BEGIN 2 */
   // Initialize OLED
@@ -642,21 +655,26 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);  // Servo 1
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);  // Servo 2
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);  // Servo 3
-
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);  // Servo 4
   // Initialize satu per satu
   servo_set_angle(1, SERVO1_DOWN_ANGLE);
-  HAL_Delay(200);
-  servo_set_angle(2, SERVO2_DOWN_ANGLE);
-  HAL_Delay(200);
-  servo_set_angle(3, SERVO3_DOWN_ANGLE);
-  HAL_Delay(200);
-  bump_is_up = 0;
+    HAL_Delay(200);
+    servo_set_angle(2, SERVO2_DOWN_ANGLE);
+    HAL_Delay(200);
+    servo_set_angle(3, SERVO3_DOWN_ANGLE);
+    HAL_Delay(200);
+    servo_set_angle(4, SERVO4_DOWN_ANGLE);
+    HAL_Delay(200);
+    bump_is_up = 0;
+
 
   sprintf(MSG, "\r\n╔═══════════════════════════╗\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-  sprintf(MSG, "║ 3-SERVO BUMP - TIM3      ║\r\n");
+  sprintf(MSG, "║ 4-SERVO BUMP SYSTEM      ║\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-  sprintf(MSG, "║   CH1, CH2, CH3 CONTROL  ║\r\n");
+  sprintf(MSG, "║ TIM3: CH1,CH2,CH3        ║\r\n");
+  HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+  sprintf(MSG, "║ TIM4: CH3 (PB8)          ║\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
   sprintf(MSG, "╚═══════════════════════════╝\r\n\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
@@ -722,7 +740,7 @@ int main(void)
   // POWER WARNING
   sprintf(MSG, "⚠  POWER INFO:\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-  sprintf(MSG, "   3 servos = ~600mA @ 5V (200mA each)\r\n");
+  sprintf(MSG, "   4 servos = ~800mA @ 5V (200mA each)\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
   sprintf(MSG, "   USB 2.0 = 500mA limit\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
@@ -765,90 +783,91 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	  while (1)
-	    {
-	      uint32_t current_time = HAL_GetTick();
+  while (1)
+  	    {
+  	      uint32_t current_time = HAL_GetTick();
 
-	      // FASTER SENSOR READING (every 30ms)
-	      if (current_time - last_measurement_time >= SAMPLE_INTERVAL_MS)
-	      {
-	          last_measurement_time = current_time;
+  	      // FASTER SENSOR READING (every 30ms)
+  	      if (current_time - last_measurement_time >= SAMPLE_INTERVAL_MS)
+  	      {
+  	          last_measurement_time = current_time;
 
-	          if (HCSR04_Read())
-	          {
-	              add_distance_reading(distance_cm, current_time);
-	              last_valid_detection = current_time;
+  	          if (HCSR04_Read())
+  	          {
+  	              add_distance_reading(distance_cm, current_time);
+  	              last_valid_detection = current_time;
 
-	              // Calculate speed with improved algorithm
-	              current_speed_kmh = calculate_speed_improved();
+  	              // Calculate speed with improved algorithm
+  	              current_speed_kmh = calculate_speed_improved();
 
-	              // Apply smoothing only if we have a valid speed
-	              if (current_speed_kmh > MIN_SPEED_THRESHOLD) {
-	                  if (smoothed_speed_kmh == 0.0f) {
-	                      smoothed_speed_kmh = current_speed_kmh;
-	                  } else {
-	                      // Less aggressive smoothing for better responsiveness
-	                      smoothed_speed_kmh = 0.6f * smoothed_speed_kmh + 0.4f * current_speed_kmh;
-	                  }
-	              }
-	          }
-    	      // IR SENSOR CHECK runs regardless of US state
-    	      check_ir_sensor_state();
+  	              // Apply smoothing only if we have a valid speed
+  	              if (current_speed_kmh > MIN_SPEED_THRESHOLD) {
+  	                  if (smoothed_speed_kmh == 0.0f) {
+  	                      smoothed_speed_kmh = current_speed_kmh;
+  	                  } else {
+  	                      // Less aggressive smoothing for better responsiveness
+  	                      smoothed_speed_kmh = 0.6f * smoothed_speed_kmh + 0.4f * current_speed_kmh;
+  	                  }
+  	              }
+  	          }
+      	      // IR SENSOR CHECK runs regardless of US state
+      	      check_ir_sensor_state();
 
-    	      // DENSITY CALCULATION
-    	      update_density_calculation(current_time);
+      	      // DENSITY CALCULATION
+      	      update_density_calculation(current_time);
 
-    	      // CONTROL BUMP BASED ON SPEED AND DENSITY
-    	      control_speed_bump(smoothed_speed_kmh, current_density);
+      	      // CONTROL BUMP BASED ON SPEED AND DENSITY
+      	      control_speed_bump(smoothed_speed_kmh, current_density);
 
-	          // Check timeout
-	          if (current_time - last_valid_detection > NO_VEHICLE_TIMEOUT_MS)
-	          {
-	              smoothed_speed_kmh = 0.0f;
-	              current_speed_kmh = 0.0f;
-	          }
-	      }
+  	          // Check timeout
+  	          if (current_time - last_valid_detection > NO_VEHICLE_TIMEOUT_MS)
+  	          {
+  	              smoothed_speed_kmh = 0.0f;
+  	              current_speed_kmh = 0.0f;
+  	          }
+  	      }
 
-	      // OLED UPDATE (every 300ms for responsiveness)
-	      if (current_time - last_oled_update >= 300)
-	      {
-	          last_oled_update = current_time;
-	          update_oled_display(smoothed_speed_kmh, current_density, bump_is_up);
-	      }
+  	      // OLED UPDATE (every 300ms for responsiveness)
+  	      if (current_time - last_oled_update >= 300)
+  	      {
+  	          last_oled_update = current_time;
+  	          update_oled_display(smoothed_speed_kmh, current_density, bump_is_up);
+  	      }
 
-	      // DIAGNOSTIC REPORT (every 3 seconds)
-	      if (current_time - last_diagnostic >= 3000)
-	      {
-	          last_diagnostic = current_time;
+  	      // DIAGNOSTIC REPORT (every 3 seconds)
+  	      if (current_time - last_diagnostic >= 3000)
+  	      {
+  	          last_diagnostic = current_time;
 
-	          if (smoothed_speed_kmh > 0 && current_density > 0) {
-	        	  json_str = create_data_packet(smoothed_speed_kmh, current_density, bump_is_up, total_vehicles);
-	          } else {
-		          sprintf(MSG, "[MQTT] Skipping JSON because speed and density is null\r\n");
-		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	          }
+  	          if (smoothed_speed_kmh > 0 && current_density > 0) {
+  	        	  json_str = create_data_packet(smoothed_speed_kmh, current_density, bump_is_up, total_vehicles);
+  	          } else {
+  		          sprintf(MSG, "[MQTT] Skipping JSON because speed and density is null\r\n");
+  		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+  	          }
 
-	          if (json_str != NULL) {
-	              strncpy(mqtt_buffer, json_str, sizeof(mqtt_buffer) - 1);
-	              mqtt_publish_pending = 1;
-		          sprintf(MSG, "[MQTT] Created JSON and MQTT status is: %u\r\n", mqtt_publish_pending);
-		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	          }
-	          print_diagnostics();
-	      }
+  	          if (json_str != NULL) {
+  	              strncpy(mqtt_buffer, json_str, sizeof(mqtt_buffer) - 1);
+  	              mqtt_publish_pending = 1;
+  		          sprintf(MSG, "[MQTT] Created JSON and MQTT status is: %u\r\n", mqtt_publish_pending);
+  		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+  	          }
+  	          print_diagnostics();
+  	      }
 
-	      // SEND MQTT ONLY when no vehicle is nearby (non-critical time)
-	      if (mqtt_publish_pending &&
-	          (current_time - last_valid_detection > 100)) {  // 1 second after last detection
+  	      // SEND MQTT ONLY when no vehicle is nearby (non-critical time)
+  	      if (mqtt_publish_pending &&
+  	          (current_time - last_valid_detection > 1000)) {  // 1 second after last detection
 
-	          ESP_MQTT_Publish("smartronic", mqtt_buffer, 0);
-	          mqtt_publish_pending = 0;
+  	          ESP_MQTT_Publish("smartronic", mqtt_buffer, 0);
+  	          mqtt_publish_pending = 0;
 
-	          sprintf(MSG, "[MQTT] Published during idle time\r\n");
-	          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	      }
-	    }
-	  }
+  	          sprintf(MSG, "[MQTT] Published during idle time\r\n");
+  	          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+  	      }
+  	    }
+  	  }
+
 
 /**
   * @brief System Clock Configuration
@@ -1171,6 +1190,55 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 71;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 
 }
 
