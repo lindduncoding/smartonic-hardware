@@ -4,7 +4,7 @@
 
 int8_t classify_state(uint8_t density, uint8_t speed)
 {
-    if (density > 5 || speed > 20) {
+    if (density > 5 || speed > 10) {
         return -1; // Invalid input
     }
 
@@ -18,9 +18,9 @@ int8_t classify_state(uint8_t density, uint8_t speed)
     }
 
     uint8_t speed_cat;
-    if (speed < 10) {
+    if (speed < 4) {
         speed_cat = 0;        // Lambat
-    } else if (speed < 20) {
+    } else if (speed < 6) {
         speed_cat = 1;        // Sedang
     } else {
         speed_cat = 2;        // Cepat
