@@ -14,6 +14,8 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 #include <math.h>
 #include "ESP8266_STM32.h"
 #include "cJSON.h"
@@ -44,14 +46,14 @@
 #define SPEED_CALCULATION_SAMPLES 3  // Use last 3 readings for speed calc
 
 // Thresholds - ADJUSTED for realistic speeds
-#define SPEED_THRESHOLD_LOW 1        // Lower threshold (was 5)
+#define SPEED_THRESHOLD_LOW 3        // Lower threshold (was 5)
 #define SPEED_THRESHOLD_HIGH 6      // Lower threshold (was 15)
 #define MIN_SPEED_THRESHOLD 0.5f     // Lower minimum (was 1.0f)
 
 // Servo Angles - REDUCED POWER CONSUMPTION
 #define SERVO_DOWN_ANGLE 90
-#define SERVO1_UP_ANGLE 120           // Reduced from 45
-#define SERVO2_UP_ANGLE 60
+#define SERVO1_UP_ANGLE 80           // Right
+#define SERVO2_UP_ANGLE 100			// Left
 
 // Detection - OPTIMIZED for 3m track
 #define VALID_DISTANCE_MIN 3         // Closer minimum (was 5)
@@ -63,6 +65,7 @@
 // Speed calculation constants for 3m track
 #define MIN_DISTANCE_CHANGE 2        // Minimum 2cm change to calculate speed
 #define MAX_REASONABLE_SPEED 10.0f   // Maximum 30 km/h for safety
+#define SPEED_MEASUREMENT_DURATION 10 // Measure after 10 ms
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -108,6 +111,8 @@ float smoothed_speed_kmh = 0.0f;
 float max_speed_detected = 0.0f;
 uint32_t last_valid_detection = 0;
 uint32_t valid_speed_readings = 0;
+uint8_t speed_measurement_active = 0;  // Flag to track if we're measuring speed
+uint32_t speed_measurement_start = 0;  // When measurement started
 
 // Ultrasonic statistics
 uint32_t ultrasonic_read_count = 0;
@@ -185,6 +190,15 @@ void print_diagnostics(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+float map_with_noise(float a, float eps)
+{
+    float mapped = 4.0f + ((a - 0.6f) / 0.4f) * 2.0f;
+    float noise = ((float)rand() / RAND_MAX) * (2.0f * eps) - eps;
+
+    return mapped + noise;
+}
+
 int _write(int file, char *ptr, int len) {
     HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
     return len;
@@ -434,7 +448,7 @@ void servo_set_angle(uint8_t servo_num, uint8_t angle)
     }
 }
 
-// MODIFIED: Control all 3 servos simultaneously
+// MODIFIED: Control all 4 servos simultaneously
 void control_speed_bump(float speed_kmh, float density)
 {
     uint32_t current_time = HAL_GetTick();
@@ -658,11 +672,11 @@ int main(void)
 
   SSD1306_Fill(SSD1306_COLOR_BLACK);
   SSD1306_GotoXY(0, 10);
-  SSD1306_Puts("3-SERVO BUMP", &Font_11x18, SSD1306_COLOR_WHITE);
+  SSD1306_Puts("SMARTONIC-FT", &Font_11x18, SSD1306_COLOR_WHITE);
   SSD1306_GotoXY(0, 35);
-  SSD1306_Puts("TIM3 CONTROL", &Font_7x10, SSD1306_COLOR_WHITE);
+  SSD1306_Puts("C-03 Capstone", &Font_7x10, SSD1306_COLOR_WHITE);
   SSD1306_GotoXY(0, 50);
-  SSD1306_Puts("OPTIMIZED v2", &Font_7x10, SSD1306_COLOR_WHITE);
+  SSD1306_Puts("DTETI FT UGM", &Font_7x10, SSD1306_COLOR_WHITE);
   SSD1306_UpdateScreen();
   HAL_Delay(2000);
 
@@ -801,87 +815,100 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	      uint32_t current_time = HAL_GetTick();
+	  uint32_t current_time = HAL_GetTick();
 
-	      // FASTER SENSOR READING (every 30ms)
-	      if (current_time - last_measurement_time >= SAMPLE_INTERVAL_MS)
-	      {
-	          last_measurement_time = current_time;
+	            // FASTER SENSOR READING (every 30ms)
+	            if (current_time - last_measurement_time >= SAMPLE_INTERVAL_MS)
+	            {
+	                last_measurement_time = current_time;
 
-	          if (HCSR04_Read())
-	          {
-	              add_distance_reading(distance_cm, current_time);
-	              last_valid_detection = current_time;
+	                if (HCSR04_Read())
+	                {
+	                    add_distance_reading(distance_cm, current_time);
+	                    last_valid_detection = current_time;
 
-	              // Calculate speed with improved algorithm
-	              current_speed_kmh = calculate_speed_improved();
+	                    // Calculate speed with improved algorithm
+	                    current_speed_kmh = calculate_speed_improved();
 
-	              // Apply smoothing only if we have a valid speed
-	              if (current_speed_kmh > MIN_SPEED_THRESHOLD) {
-	                  if (smoothed_speed_kmh == 0.0f) {
-	                      smoothed_speed_kmh = current_speed_kmh;
-	                  } else {
-	                      // Less aggressive smoothing for better responsiveness
-	                      smoothed_speed_kmh = 0.6f * smoothed_speed_kmh + 0.4f * current_speed_kmh;
-	                  }
-	              }
-	          }
-  	      // IR SENSOR CHECK runs regardless of US state
-  	      check_ir_sensor_state();
+	                    // Apply smoothing only if we have a valid speed
+	                    if (current_speed_kmh > MIN_SPEED_THRESHOLD) {
+	                        if (smoothed_speed_kmh == 0.0f) {
+	                            smoothed_speed_kmh = current_speed_kmh;
+	                        } else {
+	                            // Less aggressive smoothing for better responsiveness
+	                            smoothed_speed_kmh = 0.6f * smoothed_speed_kmh + 0.4f * current_speed_kmh;
+	  //                          __srand__(time(NULL));
+	  //                          smoothed_speed_kmh = map_with_noise(current_speed_kmh, 0.1f);
+	                        }
+	                    }
+	                }
+	              // IR SENSOR CHECK runs regardless of US state
+	              check_ir_sensor_state();
 
-  	      // DENSITY CALCULATION
-  	      update_density_calculation(current_time);
+	              // DENSITY CALCULATION
+	              update_density_calculation(current_time);
 
-  	      // CONTROL BUMP BASED ON SPEED AND DENSITY
-  	      control_speed_bump(smoothed_speed_kmh, current_density);
+	              // CONTROL BUMP BASED ON SPEED AND DENSITY
+	              control_speed_bump(smoothed_speed_kmh, current_density);
 
-	          // Check timeout
-	          if (current_time - last_valid_detection > NO_VEHICLE_TIMEOUT_MS)
-	          {
-	              smoothed_speed_kmh = 0.0f;
-	              current_speed_kmh = 0.0f;
-	          }
-	      }
+	                // Check timeout
+	                if (current_time - last_valid_detection > NO_VEHICLE_TIMEOUT_MS)
+	                {
+	                    smoothed_speed_kmh = 0.0f;
+	                    current_speed_kmh = 0.0f;
+	                }
+	            }
 
-	      // OLED UPDATE (every 300ms for responsiveness)
-	      if (current_time - last_oled_update >= 300)
-	      {
-	          last_oled_update = current_time;
-	          update_oled_display(smoothed_speed_kmh, current_density, bump_is_up);
-	      }
+	            // OLED UPDATE (every 300ms for responsiveness)
+	            if (current_time - last_oled_update >= 300)
+	            {
+	                last_oled_update = current_time;
+	  //              update_oled_display(smoothed_speed_kmh, current_density, bump_is_up);
+	                if (bump_is_up == 1) {
+	                    SSD1306_Fill(SSD1306_COLOR_BLACK);
+	                    SSD1306_GotoXY(0, 20);
+	                    SSD1306_Puts("AWAS SPEED BUMP!", &Font_7x10, SSD1306_COLOR_WHITE);
+	                    SSD1306_UpdateScreen();
+	                } else {
+	                    SSD1306_Fill(SSD1306_COLOR_BLACK);
+	                    SSD1306_GotoXY(0, 20);
+	                    SSD1306_Puts("PERHATIKAN KECEPATAN!", &Font_7x10, SSD1306_COLOR_WHITE);
+	                    SSD1306_UpdateScreen();
+	                }
+	            }
 
-	      // DIAGNOSTIC REPORT (every 3 seconds)
-	      if (current_time - last_diagnostic >= 3000)
-	      {
-	          last_diagnostic = current_time;
+	            // DIAGNOSTIC REPORT (every 3 seconds)
+	            if (current_time - last_diagnostic >= 3000)
+	            {
+	                last_diagnostic = current_time;
 
-	          if (smoothed_speed_kmh > 0 && current_density > 0) {
-	        	  json_str = create_data_packet(smoothed_speed_kmh, current_density, bump_is_up, total_vehicles);
-	          } else {
-		          sprintf(MSG, "[MQTT] Skipping JSON because speed and density is null\r\n");
-		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	          }
+	                if (smoothed_speed_kmh > 0 && current_density > 0) {
+	                    json_str = create_data_packet(smoothed_speed_kmh, current_density, bump_is_up, total_vehicles);
+	                } else {
+	                    sprintf(MSG, "[MQTT] Skipping JSON because speed and density is null\r\n");
+	                    HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+	                }
 
-	          if (json_str != NULL) {
-	              strncpy(mqtt_buffer, json_str, sizeof(mqtt_buffer) - 1);
-	              mqtt_publish_pending = 1;
-		          sprintf(MSG, "[MQTT] Created JSON and MQTT status is: %u\r\n", mqtt_publish_pending);
-		          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	          }
-	          print_diagnostics();
-	      }
+	                if (json_str != NULL) {
+	                    strncpy(mqtt_buffer, json_str, sizeof(mqtt_buffer) - 1);
+	                    mqtt_publish_pending = 1;
+	                    sprintf(MSG, "[MQTT] Created JSON and MQTT status is: %u\r\n", mqtt_publish_pending);
+	                    HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+	                }
+	                print_diagnostics();
+	            }
 
-	      // SEND MQTT ONLY when no vehicle is nearby (non-critical time)
-	      if (mqtt_publish_pending &&
-	          (current_time - last_valid_detection > 1000)) {  // 1 second after last detection
+	            // SEND MQTT ONLY when no vehicle is nearby (non-critical time)
+	            if (mqtt_publish_pending &&
+	                (current_time - last_valid_detection > 1000)) {  // 1 second after last detection
 
-	          ESP_MQTT_Publish("smartronic", mqtt_buffer, 0);
-	          mqtt_publish_pending = 0;
+	                ESP_MQTT_Publish("smartonic", mqtt_buffer, 0);
+	                mqtt_publish_pending = 0;
 
-	          sprintf(MSG, "[MQTT] Published during idle time\r\n");
-	          HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
-	      }
-    /* USER CODE BEGIN 3 */
+	                sprintf(MSG, "[MQTT] Published during idle time\r\n");
+	                HAL_UART_Transmit(&huart2, (uint8_t*)MSG, strlen(MSG), 100);
+	            }
+	      /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
