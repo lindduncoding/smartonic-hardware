@@ -58,7 +58,7 @@
 // Detection - OPTIMIZED for 3m track
 #define VALID_DISTANCE_MIN 3         // Closer minimum (was 5)
 #define VALID_DISTANCE_MAX 100       // Wider range (was 50)
-#define IR_DEBOUNCE_MS 50           // Longer debounce (was 50)
+#define IR_DEBOUNCE_MS 20           // Longer debounce (was 50)
 #define BUMP_COOLDOWN_MS 1500        // Shorter cooldown (was 2000)
 #define NO_VEHICLE_TIMEOUT_MS 2000   // Longer timeout (was 1000)
 
@@ -421,7 +421,7 @@ void check_ir_sensor_state(void)
 
 void update_density_calculation(uint32_t current_time)
 {
-    if (current_time - density_window_start >= 60000)
+    if (current_time - density_window_start >= 1000)
     {
         current_density = (float)density_window_count;
 
@@ -725,7 +725,6 @@ int main(void)
       SSD1306_GotoXY(0, 20);
       SSD1306_Puts("ESP8266 ERROR!", &Font_11x18, SSD1306_COLOR_WHITE);
       SSD1306_UpdateScreen();
-      Error_Handler();
   }
 
   if (ESP_ConnectWiFi("Pixel_6094", "kurangpanjang", ip_buf, sizeof(ip_buf)) != ESP8266_OK){
@@ -894,19 +893,22 @@ int main(void)
     	  } else {
     		  if (bump_is_up == 1) {
     			  SSD1306_Fill(SSD1306_COLOR_BLACK);
-    			  SSD1306_GotoXY(0, 10);
-    			  SSD1306_Puts("AWAS!", &Font_11x18, SSD1306_COLOR_WHITE);
-    			  SSD1306_GotoXY(0, 35);
-    			  SSD1306_Puts("SPEED BUMP!", &Font_7x10, SSD1306_COLOR_WHITE);
-    			  SSD1306_UpdateScreen();
+    	          SSD1306_GotoXY(0, 10);
+    	          SSD1306_Puts("AWAS!", &Font_11x18, SSD1306_COLOR_WHITE);
+    	          SSD1306_GotoXY(0, 35);
+    	          SSD1306_Puts("SPEED BUMP!", &Font_7x10, SSD1306_COLOR_WHITE);
     		  } else {
     			  SSD1306_Fill(SSD1306_COLOR_BLACK);
     			  SSD1306_GotoXY(0, 15);
     			  SSD1306_Puts("PERHATIKAN", &Font_7x10, SSD1306_COLOR_WHITE);
     			  SSD1306_GotoXY(0, 30);
     			  SSD1306_Puts("KECEPATAN!", &Font_7x10, SSD1306_COLOR_WHITE);
-    			  SSD1306_UpdateScreen();
     		  }
+    		  char speed_line[20];
+    		  snprintf(speed_line, sizeof(speed_line), "%.1f km/h", smoothed_speed_kmh);
+    		  SSD1306_GotoXY(0, 50);
+    		  SSD1306_Puts(speed_line, &Font_7x10, SSD1306_COLOR_WHITE);
+    		  SSD1306_UpdateScreen();
     	  }
       }
 
